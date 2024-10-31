@@ -1,11 +1,11 @@
+import { GraphQLSchema, graphql, parse, validate } from 'graphql';
 import { FastifyPluginAsyncTypebox } from '@fastify/type-provider-typebox';
-import { createGqlResponseSchema, gqlResponseSchema } from './schemas.js';
-import { graphql } from 'graphql';
+import depthLimit from 'graphql-depth-limit';
 
-interface GraphQLResponse {
-  data: null;
-  errors?: unknown;
-}
+import { createGqlResponseSchema, gqlResponseSchema } from './schemas.js';
+import { mainQuery } from './mainQuery.js';
+import { mainMutation } from './mainMutation.js';
+
 
 const plugin: FastifyPluginAsyncTypebox = async (fastify) => {
   const { prisma } = fastify;
@@ -19,11 +19,26 @@ const plugin: FastifyPluginAsyncTypebox = async (fastify) => {
         200: gqlResponseSchema,
       },
     },
-    async handler(req, reply) {
-      // return graphql();
-      console.log('--- GraphQL route handler is running ---');
-      const response: GraphQLResponse = { data: null };
-      return reply.send(response);
+    async handler(req) {
+      const graphqlSchema = new GraphQLSchema({
+        query: mainQuery,
+        mutation: mainMutation,
+      });
+
+      const graphqlQuery = req.body.query;
+      const variables = req.body.variables;
+      const errors = validate(graphqlSchema, parse(graphqlQuery), [depthLimit(5)]);
+
+      if (errors.length) {
+        return { errors };
+      }
+
+      return graphql({
+        schema: graphqlSchema,
+        source: graphqlQuery,
+        variableValues: variables,
+        contextValue: prisma,
+      });
     },
   });
 };
